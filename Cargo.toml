@@ -1,0 +1,20 @@
+[workspace]
+resolver = "2"
+members = [
+    "client/ui",
+]
+
+[profile.dev]
+opt-level = 0
+debug = true
+debug-assertions = true
+overflow-checks = true
+lto = 'off'
+panic = 'unwind'
+incremental = true
+split-debuginfo = "unpacked"
+
+[profile.release]
+strip = true
+
+[workspace.dependencies]

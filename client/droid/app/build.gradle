@@ -1,0 +1,165 @@
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+    id 'org.jetbrains.kotlin.plugin.serialization' version '1.6.21'
+    //id 'com.google.gms.google-services'
+    id 'com.google.firebase.appdistribution'
+    id 'com.google.firebase.crashlytics'
+    id "org.mozilla.rust-android-gradle.rust-android"
+}
+
+def projectBasePath = file("../../../")
+def rustBasePath = file("${projectBasePath}/client/ui")
+def libsOutputDir = "${projectBasePath}/client/droid/app/src/main/jniLibs"
+def cargoOutputDir = "${projectBasePath}/target"
+
+android {
+    compileSdk 33
+
+    defaultConfig {
+        applicationId "com.ventasmovilesapp.ventasmoviles"
+        minSdk 26
+        targetSdk 33
+        // Pin NDK version to assure compatibility with cargo-ndk build
+        ndkVersion "25.2.9519653"
+        versionCode 1
+        versionName "1.0"
+        vectorDrawables.useSupportLibrary = true
+
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        vectorDrawables {
+            useSupportLibrary true
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+    kotlinOptions {
+        jvmTarget = '1.8'
+    }
+    buildFeatures {
+        compose true
+    }
+    composeOptions {
+        kotlinCompilerExtensionVersion compose_version
+    }
+    packagingOptions {
+        resources {
+            excludes += '/META-INF/{AL2.0,LGPL2.1}'
+        }
+    }
+    namespace 'com.ventasmovilesapp.ventasmoviles'
+}
+
+dependencies {
+    def work_version = "2.7.1"
+    implementation("androidx.work:work-runtime-ktx:$work_version")
+    implementation 'androidx.navigation:navigation-compose:2.5.3'
+    implementation 'androidx.core:core-ktx:1.9.0'
+    implementation "androidx.compose.ui:ui:$compose_ui_version"
+    implementation "androidx.compose.material:material:$compose_version"
+    implementation "androidx.compose.ui:ui-tooling-preview:$compose_ui_version"
+    implementation 'androidx.lifecycle:lifecycle-runtime-ktx:2.5.1'
+    implementation 'androidx.activity:activity-compose:1.6.1'
+    debugImplementation "androidx.compose.ui:ui-tooling:$compose_ui_version"
+    implementation 'com.caverock:androidsvg-aar:1.4'
+    implementation 'org.jetbrains.kotlinx:kotlinx-serialization-json:1.4.1'
+    implementation 'com.github.BILLyTheLiTTle:LazyColumns:0.2.8'
+    implementation "androidx.datastore:datastore:1.0.0"
+    implementation "androidx.datastore:datastore-preferences:1.0.0"
+    implementation platform('com.google.firebase:firebase-bom:31.2.3')
+    implementation 'com.google.firebase:firebase-crashlytics-ndk'
+    implementation 'com.google.firebase:firebase-analytics-ktx'
+    implementation 'com.github.guepardoapps:kulid:2.0.0.0'
+
+    implementation project(path: ':libUI')
+
+    testImplementation 'junit:junit:4.13.2'
+    androidTestImplementation 'androidx.test.ext:junit:1.1.4'
+    androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.0'
+    androidTestImplementation "androidx.compose.ui:ui-test-junit4:$compose_ui_version"
+}
+def archTriplets = [
+        'armeabi-v7a': 'armv7-linux-androideabi',
+        'arm64-v8a'  : 'aarch64-linux-android',
+//'x86_64': 'x86_64-linux-android',
+//'x86': 'i686-linux-android' //, only run on 64 intel...
+]
+println "Base path: ${projectBasePath}"
+println "Rust path: ${rustBasePath}"
+println "Libs path: ${libsOutputDir}"
+def build_type = getGradle().getStartParameter().getTaskRequests().toString()
+def cargo_build = ""
+def cargo_art = ""
+if (build_type.contains("elease")) {
+    cargo_build = "--release"
+    cargo_art = "release"
+} else if (build_type.contains("ebug")) {
+    cargo_build = ""
+    cargo_art = "debug"
+}
+println "Mode: ${cargo_build}"
+
+apply plugin: 'org.mozilla.rust-android-gradle.rust-android'
+
+cargo {
+    module  = rustBasePath       // Or whatever directory contains your Cargo.toml
+    libname = "ui"          // Or whatever matches Cargo.toml's [package] name.
+    targets = ["arm", "x86"]  // See bellow for a longer list of options
+}
+
+tasks.whenTaskAdded { task ->
+    if ((task.name == 'javaPreCompileDebug' || task.name == 'javaPreCompileRelease')) {
+        task.dependsOn 'cargoBuild'
+    }
+}
+
+//
+//archTriplets.each { arch, target ->
+//    // Build with cargo
+//    tasks.create(name: "cargo-build-${arch}", type: Exec, description: "Building rust libs for ${arch}") {
+//        workingDir rustBasePath
+//        println "cargo +nightly ndk --target=${arch} build ${cargo_build} -Zbuild-std"
+//        if (cargo_build == "") {
+//            commandLine 'cargo', '+nightly', 'ndk', "--target=${arch}", "build", '-Zbuild-std'
+//        } else {
+//            commandLine 'cargo', '+nightly', 'ndk', "--target=${arch}", "build", cargo_build, '-Zbuild-std'
+//        }
+//    }
+//
+//    // Copy build libs into this app's libs directory
+//    tasks.create(name: "rust-sync-${arch}", type: Copy, dependsOn: "cargo-build-${arch}", description: "Copy rust libs for (${arch}) to jniLibs") {
+//        //println "COPY ${cargoOutputDir}/${target}/release TO ${libsOutputDir}/${target}"
+//        from "${cargoOutputDir}/${target}/${cargo_art}"
+//        include "*.so"
+//        into "${libsOutputDir}/${arch}"
+//    }
+//
+//    // Hook up tasks to execute before building java
+//    tasks.withType(JavaCompile) {
+//        compileTask -> compileTask.dependsOn "rust-sync-${arch}"
+//    }
+//    preBuild.dependsOn "rust-sync-${arch}"
+//
+//    // Hook up clean tasks
+//    tasks.create(name: "clean-${arch}", type: Delete, description: "Deleting built libs for ${arch}") {
+//        delete fileTree("${cargoOutputDir}/${target}/${cargo_art}") {
+//            include '*.so'
+//        }
+//    }
+//
+//    clean.dependsOn "clean-${arch}"
+//}
+//
+//tasks.create(name: "clean-jni", type: Delete, description: "Deleting JNI libs") {
+//    delete "${libsOutputDir}"
+//}
+//
+//clean.dependsOn "clean-jni"
